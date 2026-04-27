@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jeopardy Game</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial;
+  background: radial-gradient(circle at top, #1a237e, #000);
+  color: white;
+  text-align: center;
+}
+
+/* SCOREBOARD */
+.scoreboard {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  background: #0d47a1;
+  padding: 10px;
+  font-size: 20px;
+}
+
+.score {
+  font-size: 32px;
+  color: gold;
+}
+
+/* BOARD */
+#board {
+  display: grid;
+  gap: 6px;
+  max-width: 1100px;
+  margin: 20px auto;
+  transition: transform 0.3s, opacity 0.3s;
+}
+
+.cell {
+  background: linear-gradient(#1e3cba, #0d1b5e);
+  padding: 20px;
+  font-size: 26px;
+  color: gold;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cell:hover { transform: scale(1.08); }
+
+.header {
+  background: #0d47a1;
+  color: white;
+  font-size: 18px;
+}
+
+.used {
+  background: #111;
+  color: #333;
+  cursor: default;
+}
+
+/* SCREENS */
+.screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  background: rgba(0,0,0,0.95);
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.zoom { animation: zoom 0.3s; }
+
+@keyframes zoom {
+  from { transform: scale(0.7); }
+  to { transform: scale(1); }
+}
+
+/* TIMER */
+#timer {
+  font-size: 60px;
+  margin: 10px;
+}
+
+/* BUTTONS */
+button {
+  padding: 10px 15px;
+  margin: 5px;
+  font-size: 16px;
+}
+
+input {
+  padding: 10px;
+  margin: 5px;
+  width: 120px;
+  text-align: center;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Jeopardy</h1>
+
+<!-- GLOBAL SCOREBOARD -->
+<div class="scoreboard">
+  <div>Team 1 <div id="score1" class="score">0</div></div>
+  <div>Team 2 <div id="score2" class="score">0</div></div>
+</div>
+
+<input type="file" id="csvFile">
+<button onclick="resetGame()">Reset</button>
+
+<div id="board"></div>
+
+<!-- QUESTION SCREEN -->
+<div id="modal" class="screen">
+  <div class="scoreboard">
+    <div>Team 1 <div id="score1_m" class="score">0</div></div>
+    <div>Team 2 <div id="score2_m" class="score">0</div></div>
+  </div>
+
+  <div class="zoom">
+
+    <!-- TIMER -->
+    <div id="timer">30</div>
+
+    <button onclick="startTimer()">Start</button>
+    <button onclick="resetTimer()">Reset</button>
+
+    <h2 id="question"></h2>
+    <h3 id="answer" style="display:none;"></h3>
+
+    <button onclick="revealAnswer()">Reveal Answer</button>
+
+    <div id="controls" style="display:none;">
+      <button onclick="applyScore(1,true)">T1 ✔</button>
+      <button onclick="applyScore(1,false)">T1 ✖</button>
+      <button onclick="applyScore(2,true)">T2 ✔</button>
+      <button onclick="applyScore(2,false)">T2 ✖</button>
+    </div>
+
+    <button onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<!-- FINAL -->
+<div id="finalScreen" class="screen">
+  <div class="scoreboard">
+    <div>Team 1 <div id="score1_f" class="score">0</div></div>
+    <div>Team 2 <div id="score2_f" class="score">0</div></div>
+  </div>
+
+  <div class="zoom">
+    <h1>FINAL JEOPARDY</h1>
+    <h2 id="finalCategory"></h2>
+
+    <p>Wagers (cannot exceed score)</p>
+
+    <input id="wager1" type="number">
+    <input id="wager2" type="number">
+
+    <button onclick="lockWagers()">Lock Wagers</button>
+
+    <h2 id="finalQuestion" style="display:none;"></h2>
+
+    <button id="showAnsBtn" style="display:none;" onclick="showFinalAnswer()">Reveal Answer</button>
+
+    <h3 id="finalAnswer" style="display:none;"></h3>
+
+    <div id="finalControls" style="display:none;">
+      <button onclick="finalScore(1,true)">T1 ✔</button>
+      <button onclick="finalScore(1,false)">T1 ✖</button>
+      <button onclick="finalScore(2,true)">T2 ✔</button>
+      <button onclick="finalScore(2,false)">T2 ✖</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div id="resultsScreen" class="screen">
+  <div class="zoom">
+    <h1>Final Results</h1>
+    <h2 id="finalScores"></h2>
+    <h1 id="winner"></h1>
+    <button onclick="resetGame()">Play Again</button>
+  </div>
+</div>
+
+<script>
+let data=[], used={}, scores={1:0,2:0};
+let finalData=null;
+let currentValue=0;
+let wager=0;
+let dailyDouble=null;
+
+/* TIMER */
+let timer=30;
+let timerInterval=null;
+
+function updateTimer(){
+  const el=document.getElementById("timer");
+  el.innerText=timer;
+  el.style.color=timer<=5?"red":"white";
+}
+
+function startTimer(){
+  if(timerInterval) return;
+  timerInterval=setInterval(()=>{
+    timer--;
+    updateTimer();
+    if(timer<=0){
+      clearInterval(timerInterval);
+      timerInterval=null;
+    }
+  },1000);
+}
+
+function resetTimer(){
+  clearInterval(timerInterval);
+  timerInterval=null;
+  timer=30;
+  updateTimer();
+}
+
+/* CSV */
+csvFile.onchange=e=>{
+  const r=new FileReader();
+  r.onload=evt=>{
+    const rows=evt.target.result.trim().split("\n").map(r=>r.split(","));
+    rows.shift();
+
+    data=[]; finalData=null;
+
+    rows.forEach(r=>{
+      if(r[0]==="FINAL"){
+        finalData={category:r[2],question:r[3],answer:r[4]};
+      } else {
+        data.push({category:r[0],value:+r[1],question:r[2],answer:r[3]});
+      }
+    });
+
+    const keys=data.map(q=>q.category+"-"+q.value);
+    dailyDouble=keys[Math.floor(Math.random()*keys.length)];
+
+    render();
+  };
+  r.readAsText(e.target.files[0]);
+};
+
+/* BOARD */
+function render(){
+  board.innerHTML="";
+  const cats=[...new Set(data.map(q=>q.category))];
+  const vals=[...new Set(data.map(q=>q.value))].sort((a,b)=>a-b);
+
+  const map={};
+  cats.forEach(c=>map[c]={});
+  data.forEach(q=>map[q.category][q.value]=q);
+
+  board.style.gridTemplateColumns=`repeat(${cats.length},1fr)`;
+
+  cats.forEach(c=>{
+    const d=document.createElement("div");
+    d.className="cell header";
+    d.innerText=c;
+    board.appendChild(d);
+  });
+
+  vals.forEach(v=>{
+    cats.forEach(c=>{
+      const q=map[c][v];
+      const key=c+"-"+v;
+
+      const d=document.createElement("div");
+      d.className="cell";
+
+      if(!q||used[key]){
+        d.classList.add("used");
+      } else {
+        d.innerText="$"+v;
+        d.onclick=()=>open(q,key);
+      }
+      board.appendChild(d);
+    });
+  });
+}
+
+/* OPEN QUESTION */
+function open(q,key){
+  currentValue=q.value;
+
+  if(key===dailyDouble){
+    wager=parseInt(prompt("DAILY DOUBLE WAGER"))||0;
+  } else {
+    wager=currentValue;
+  }
+
+  resetTimer();
+
+  question.innerText=q.question;
+  answer.innerText=q.answer;
+  answer.style.display="none";
+  controls.style.display="none";
+
+  syncScores();
+
+  modal.style.display="flex";
+
+  used[key]=true;
+  render();
+}
+
+/* ANSWER */
+function revealAnswer(){
+  answer.style.display="block";
+  controls.style.display="block";
+}
+
+/* SCORING */
+function applyScore(t,correct){
+  scores[t]+=correct?wager:-wager;
+  syncScores();
+}
+
+function syncScores(){
+  score1.innerText=scores[1];
+  score2.innerText=scores[2];
+  score1_m.innerText=scores[1];
+  score2_m.innerText=scores[2];
+  score1_f.innerText=scores[1];
+  score2_f.innerText=scores[2];
+}
+
+/* CLOSE */
+function closeModal(){
+  modal.style.display="none";
+  resetTimer();
+
+  if(Object.keys(used).length===data.length){
+    startFinal();
+  }
+}
+
+/* FINAL JEOPARDY */
+function startFinal(){
+  finalScreen.style.display="flex";
+  finalCategory.innerText=finalData.category;
+  syncScores();
+}
+
+function lockWagers(){
+  const w1=+wager1.value||0;
+  const w2=+wager2.value||0;
+
+  if(w1>scores[1]||w2>scores[2]){
+    alert("Wager exceeds score!");
+    return;
+  }
+
+  finalQuestion.innerText=finalData.question;
+  finalQuestion.style.display="block";
+  showAnsBtn.style.display="inline-block";
+}
+
+function showFinalAnswer(){
+  finalAnswer.innerText=finalData.answer;
+  finalAnswer.style.display="block";
+  finalControls.style.display="block";
+}
+
+function finalScore(t,correct){
+  const w=+document.getElementById("wager"+t).value||0;
+  scores[t]+=correct?w:-w;
+  syncScores();
+
+  if(!window.fc) window.fc=0;
+  window.fc++;
+
+  if(window.fc>=2) showResults();
+}
+
+/* RESULTS */
+function showResults(){
+  finalScreen.style.display="none";
+  resultsScreen.style.display="flex";
+
+  finalScores.innerText=`T1: ${scores[1]} | T2: ${scores[2]}`;
+
+  winner.innerText =
+    scores[1]>scores[2] ? "🏆 Team 1 Wins" :
+    scores[2]>scores[1] ? "🏆 Team 2 Wins" :
+    "🤝 Tie";
+}
+
+/* RESET */
+function resetGame(){ location.reload(); }
+
+updateTimer();
+</script>
+
+</body>
+</html>
